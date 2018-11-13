@@ -29,6 +29,20 @@ void setup() {
   pinMode(MAGNET_PIN, OUTPUT); 
 }
 
+void p(char *fmt, ...){
+    char buf[128];     // resulting string limited to 128 chars
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, 128, fmt, args);
+    va_end(args);
+
+    // print to serial
+    Serial.print(buf);
+
+    // print to bluetooth if available
+    SerialBT.print(buf);
+}
+
 void readStoredVars() {
   EEPROM.begin(64); // don't need a big size
   
@@ -47,11 +61,11 @@ void printHelp() {
   Serial.println("  realtime    - print out light values in realtime");
 }
 
-void printVariables() {
-  Serial.println("");
-  Serial.printf("Current Variables: \n");
-  Serial.printf("  threshold:  %d\n", LIGHT_THRESHOLD);
-  Serial.printf("  wait:       %d\n", LIGHT_THRESHOLD_WAIT_MS);
+void printVariables() { 
+  p("\n");   
+  p("Current Variables:\n");
+  p("  threshold:  %d\n", LIGHT_THRESHOLD);
+  p("  wait:       %d\n", LIGHT_THRESHOLD_WAIT_MS);
 }
 
 void handleMessage(String msg) {
@@ -71,20 +85,20 @@ void handleMessage(String msg) {
   }
  
   if (command == "enable") {
-    Serial.println("enabling device to drop now...");
+    p("enabling device to drop now...\n");
     ENABLED = true;
   }
   else if (command == "drop") {
     DROP_OVERRIDE = 2;
   }
   else if (command == "threshold") {
-    Serial.printf("setting threshold to '%d'...\n", value);
+    p("setting threshold to '%d'...\n", value);
     LIGHT_THRESHOLD = value;
     EEPROM.put(LIGHT_THRESHOLD_ADDR, value);
     EEPROM.commit();    
   }
   else if (command == "wait") {
-    Serial.printf("setting wait time to '%d'...\n", value);
+    p("setting wait time to '%d'...\n", value);
     LIGHT_THRESHOLD_WAIT_MS = value;
     EEPROM.put(LIGHT_THRESHOLD_WAIT_MS_ADDR, value);
     EEPROM.commit();    
@@ -98,8 +112,10 @@ void handleMessage(String msg) {
   else if (command == "realtime") {
     REALTIME_ENABLED = !REALTIME_ENABLED; 
   } else {
-    Serial.print("unknown command: ");
-    Serial.println(command);
+    int str_len = command.length() + 1; 
+    char char_array[str_len];
+    command.toCharArray(char_array, str_len);
+    p("unknown command: %s\n", char_array);
   } 
 }
 
@@ -127,7 +143,7 @@ void readAnySerialMessage() {
 }
 
 void resetState() {
-  Serial.println("turning off drop override");
+  p("turning off drop override\n");
   DROP_OVERRIDE = 0;
   drop_override_timestamp = 0;
   ENABLED = false;
@@ -144,7 +160,7 @@ void loop() {
   int ls = analogRead(LIGHT_SENSOR_PIN);
 
   if (REALTIME_ENABLED || PRINT_ENABLED) {
-    Serial.println(ls);
+    p("%d\n", ls);
   }
 
   // print enabled is for a single recorded value
@@ -158,9 +174,9 @@ void loop() {
 
     if (drop_override_timestamp == 0) {
       if (DROP_OVERRIDE == 1) {
-        Serial.println("Dark detected.  Dropping now!");
+        p("Dark detected.  Dropping now!\n");
       } else if (DROP_OVERRIDE == 2) {
-        Serial.println("Dark override.  Dropping now!");
+        p("Dark override.  Dropping now!\n");
       }
       drop_override_timestamp = millis();
     } else if (millis() - drop_override_timestamp > DROP_OVERRIDE_TIMEOUT) {
