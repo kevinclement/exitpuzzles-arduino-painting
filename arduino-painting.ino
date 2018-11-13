@@ -1,6 +1,7 @@
 #include "BluetoothSerial.h"
 #include "EEPROM.h"
 
+bool ENABLED = false;                  // default to disabled.  let bluetooth turn it on
 int  LIGHT_SENSOR_PIN = 34;            // sensing LED connected to IO34
 int  MAGNET_PIN = 14;                  // pin that controls the magnet
 int  LIGHT_THRESHOLD;                  // what threshold to hit before we trigger drop (default was 0)
@@ -17,18 +18,6 @@ unsigned long drop_override_timestamp = 0; // when the drop was triggered
 
 BluetoothSerial SerialBT;
 
-// TODO: 
-//   [ ] commands
-//     [ ] enable - enables light detection to work
-//     [x] threshold n - sets threshold to go below to trigger
-//     [x] wait n - sets how long to wait below threshold before triggering
-//     [x] drop - drops key
-//     [x] print - print current reading from sensor
-//     [x] realtime - print current reading out on console in realtime
-//   [x] implement eeprom usage for storing threshold and wait
-//   [x] implement threshold before dropping
-//   [x] after triggering, wait some ammount of time (2s) and then turn back on
-
 void setup() {
   Serial.begin(115200);
   Serial.println("Painting bottom dropper by kevinc");
@@ -42,16 +31,6 @@ void setup() {
 
 void readStoredVars() {
   EEPROM.begin(64); // don't need a big size
-
-  int tmpSize = 311;
-  int tmpSize2 = 1500;
-  
-  int sof = sizeof(tmpSize);
-  int sof2 = sizeof(tmpSize2);
-  Serial.printf("size 1: " );
-  Serial.println(sof);
-  Serial.printf("size 2: " );
-  Serial.println(sof2);
   
   EEPROM.get(LIGHT_THRESHOLD_ADDR, LIGHT_THRESHOLD);
   EEPROM.get(LIGHT_THRESHOLD_WAIT_MS_ADDR, LIGHT_THRESHOLD_WAIT_MS);
@@ -91,6 +70,8 @@ void handleMessage(String msg) {
   }
  
   if (command == "enable") {
+    Serial.println("enabling device to drop now...");
+    ENABLED = true;
   }
   else if (command == "drop") {
     DROP_OVERRIDE = 2;
@@ -141,6 +122,13 @@ void readAnySerialMessage() {
   SerialBT.print(str);
 }
 
+void resetState() {
+  Serial.println("turning off drop override");
+  DROP_OVERRIDE = 0;
+  drop_override_timestamp = 0;
+  ENABLED = false;
+}
+
 void loop() {
   // read bluetooth messages
   readAnyBluetoothMessage();
@@ -172,22 +160,24 @@ void loop() {
       }
       drop_override_timestamp = millis();
     } else if (millis() - drop_override_timestamp > DROP_OVERRIDE_TIMEOUT) {
-      Serial.println("turning off drop override");
-      DROP_OVERRIDE = 0;
-      drop_override_timestamp = 0;
+      resetState();
     }
   } else {
-    if (ls <= LIGHT_THRESHOLD) {
-      if (dark_detected_timestamp == 0) {
-        dark_detected_timestamp = millis();
+
+    // only do light check logic if the device is enabled 
+    if (ENABLED) {
+      if (ls <= LIGHT_THRESHOLD) {
+        if (dark_detected_timestamp == 0) {
+          dark_detected_timestamp = millis();
+        }
+        
+        if (millis() - dark_detected_timestamp > LIGHT_THRESHOLD_WAIT_MS) {
+            DROP_OVERRIDE = 1;
+        } 
+      } else {
+        dark_detected_timestamp = 0;
+        digitalWrite(MAGNET_PIN, HIGH);
       }
-      
-      if (millis() - dark_detected_timestamp > LIGHT_THRESHOLD_WAIT_MS) {
-          DROP_OVERRIDE = 1;
-      } 
-    } else {
-      dark_detected_timestamp = 0;
-      digitalWrite(MAGNET_PIN, HIGH);
     }
   } 
  
