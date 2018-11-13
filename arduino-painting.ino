@@ -42,6 +42,7 @@ void printHelp() {
   Serial.println("  drop        - triggers dropping the magnet manually");
   Serial.println("  threshold N - set threshold to be used to detect light");
   Serial.println("  wait N      - set time in milliseconds to wait while at or below threshold before triggering");
+  Serial.println("  status      - prints the status of the device variables");
   Serial.println("  print       - print last detected light value");
   Serial.println("  realtime    - print out light values in realtime");
 }
@@ -87,6 +88,9 @@ void handleMessage(String msg) {
     LIGHT_THRESHOLD_WAIT_MS = value;
     EEPROM.put(LIGHT_THRESHOLD_WAIT_MS_ADDR, value);
     EEPROM.commit();    
+  }
+  else if (command == "status") {
+    printVariables();
   }
   else if (command == "print") {
     PRINT_ENABLED = true;
