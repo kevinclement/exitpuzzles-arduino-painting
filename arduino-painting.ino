@@ -29,9 +29,19 @@ BluetoothSerial SerialBT;
 void setup() {
   Serial.begin(115200);
   Serial.println("Painting bottom dropper by kevinc");
+  printHelp();
   SerialBT.begin("ExitPaint"); //Bluetooth device name
 
   pinMode(MAGNET_PIN, OUTPUT); 
+}
+
+void printHelp() {
+  Serial.println("Available commands:");
+  Serial.println("  drop        - triggers dropping the magnet manually");
+  Serial.println("  threshold N - set threshold to be used to detect light");
+  Serial.println("  wait N      - set time in milliseconds to wait while at or below threshold before triggering");
+  Serial.println("  print       - print last detected light value");
+  Serial.println("  realtime    - print out light values in realtime");
 }
 
 void handleMessage(String msg) {
