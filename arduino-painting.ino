@@ -13,6 +13,8 @@ bool PRINT_ENABLED = false;            // when true, prints measurement out to s
 int  DROP_OVERRIDE = 0;                // controls dropping of the magnet, either manually or dark triggered
 int  DROP_OVERRIDE_TIMEOUT = 2000;     // how long to be in a dropped state before turning magnet back on
 
+char CRLF[] = "\r\n";
+
 unsigned long dark_detected_timestamp = 0; // when we started to detect dark
 unsigned long drop_override_timestamp = 0; // when the drop was triggered 
 
@@ -53,6 +55,7 @@ void readStoredVars() {
 void printHelp() {
   Serial.println("Available commands:");
   Serial.println("  enable      - turns light detection on");
+  Serial.println("  disable     - turns light detection off");
   Serial.println("  drop        - triggers dropping the magnet manually");
   Serial.println("  threshold N - set threshold to be used to detect light");
   Serial.println("  wait N      - set time in milliseconds to wait while at or below threshold before triggering");
@@ -62,10 +65,10 @@ void printHelp() {
 }
 
 void printVariables() { 
-  p("\n");   
-  p("Current Variables:\n");
-  p("  threshold:  %d\n", LIGHT_THRESHOLD);
-  p("  wait:       %d\n", LIGHT_THRESHOLD_WAIT_MS);
+  p(CRLF);   
+  p("Current Variables:%s", CRLF);
+  p("  threshold:  %d%s", LIGHT_THRESHOLD, CRLF);
+  p("  wait:       %d%s", LIGHT_THRESHOLD_WAIT_MS, CRLF);
 }
 
 void handleMessage(String msg) {
@@ -85,20 +88,24 @@ void handleMessage(String msg) {
   }
  
   if (command == "enable") {
-    p("enabling device to drop now...\n");
+    p("enabling device to drop now...%s", CRLF);
     ENABLED = true;
+  }
+  else if (command == "disable") {
+    p("disabling device now...%s", CRLF);
+    ENABLED = false;
   }
   else if (command == "drop") {
     DROP_OVERRIDE = 2;
   }
   else if (command == "threshold") {
-    p("setting threshold to '%d'...\n", value);
+    p("setting threshold to '%d'...%s", value, CRLF);
     LIGHT_THRESHOLD = value;
     EEPROM.put(LIGHT_THRESHOLD_ADDR, value);
     EEPROM.commit();    
   }
   else if (command == "wait") {
-    p("setting wait time to '%d'...\n", value);
+    p("setting wait time to '%d'...%s", value, CRLF);
     LIGHT_THRESHOLD_WAIT_MS = value;
     EEPROM.put(LIGHT_THRESHOLD_WAIT_MS_ADDR, value);
     EEPROM.commit();    
@@ -115,7 +122,7 @@ void handleMessage(String msg) {
     int str_len = command.length() + 1; 
     char char_array[str_len];
     command.toCharArray(char_array, str_len);
-    p("unknown command: %s\n", char_array);
+    p("unknown command: %s%s", char_array, CRLF);
   } 
 }
 
@@ -137,13 +144,10 @@ void readAnySerialMessage() {
   // read and handle message from serial
   String str = Serial.readStringUntil('\n');
   handleMessage(str);
-  
-  // send it to bluetooth device
-  SerialBT.print(str);
 }
 
 void resetState() {
-  p("turning off drop override\n");
+  p("turning off drop override%s", CRLF);
   DROP_OVERRIDE = 0;
   drop_override_timestamp = 0;
   ENABLED = false;
@@ -160,7 +164,7 @@ void loop() {
   int ls = analogRead(LIGHT_SENSOR_PIN);
 
   if (REALTIME_ENABLED || PRINT_ENABLED) {
-    p("%d\n", ls);
+    p("%d$s", ls, CRLF);
   }
 
   // print enabled is for a single recorded value
@@ -174,9 +178,9 @@ void loop() {
 
     if (drop_override_timestamp == 0) {
       if (DROP_OVERRIDE == 1) {
-        p("Dark detected.  Dropping now!\n");
+        p("Dark detected.  Dropping now!%s", CRLF);
       } else if (DROP_OVERRIDE == 2) {
-        p("Dark override.  Dropping now!\n");
+        p("Dark override.  Dropping now!%s", CRLF);
       }
       drop_override_timestamp = millis();
     } else if (millis() - drop_override_timestamp > DROP_OVERRIDE_TIMEOUT) {
@@ -184,7 +188,7 @@ void loop() {
     }
   } else {
 
-    // only do light check logic if the device is enabled 
+    // only do light check logic if the device is enabled
     if (ENABLED) {
       if (ls <= LIGHT_THRESHOLD) {
         if (dark_detected_timestamp == 0) {
@@ -198,8 +202,10 @@ void loop() {
         dark_detected_timestamp = 0;
         digitalWrite(MAGNET_PIN, HIGH);
       }
+    } else {
+        digitalWrite(MAGNET_PIN, HIGH);    
     }
   } 
- 
+  
   delay(50);
 }
