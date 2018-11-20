@@ -9,6 +9,8 @@ int  LIGHT_THRESHOLD_ADDR = 0;         // where to store light threshold in eepr
 int  LIGHT_THRESHOLD_WAIT_MS;          // how long to wait at threshold before we trigger the drop, in milliseconds (default was 1500)
 int  LIGHT_THRESHOLD_WAIT_MS_ADDR = 4; // where to store wait time in eeprom (need 4 because 4 bytes per int)
 bool REALTIME_ENABLED = false;         // when true, prints measurements out to serial in realtime
+int  MAGNET_OVERRIDE_STATE = 2;        // state of magnet, either on or off, or disabled
+int  MAGNET_OVERRIDE_ADDR = 8;         // addr to store in eeprom
 bool PRINT_ENABLED = false;            // when true, prints measurement out to serial once
 int  DROP_OVERRIDE = 0;                // controls dropping of the magnet, either manually or dark triggered
 int  DROP_OVERRIDE_TIMEOUT = 2000;     // how long to be in a dropped state before turning magnet back on
@@ -26,7 +28,7 @@ void setup() {
   readStoredVars();
   printHelp();
   printVariables();
-  SerialBT.begin("ExitPaint"); //Bluetooth device name
+  SerialBT.begin("ExitPaint2"); //Bluetooth device name
 
   pinMode(MAGNET_PIN, OUTPUT); 
 }
@@ -50,18 +52,20 @@ void readStoredVars() {
   
   EEPROM.get(LIGHT_THRESHOLD_ADDR, LIGHT_THRESHOLD);
   EEPROM.get(LIGHT_THRESHOLD_WAIT_MS_ADDR, LIGHT_THRESHOLD_WAIT_MS);
+  EEPROM.get(MAGNET_OVERRIDE_ADDR, MAGNET_OVERRIDE_STATE);
 }
 
 void printHelp() {
   Serial.println("Available commands:");
-  Serial.println("  enable      - turns light detection on");
-  Serial.println("  disable     - turns light detection off");
-  Serial.println("  drop        - triggers dropping the magnet manually");
-  Serial.println("  threshold N - set threshold to be used to detect light");
-  Serial.println("  wait N      - set time in milliseconds to wait while at or below threshold before triggering");
-  Serial.println("  status      - prints the status of the device variables");
-  Serial.println("  print       - print last detected light value");
-  Serial.println("  realtime    - print out light values in realtime");
+  Serial.println("  enable         - turns light detection on");
+  Serial.println("  disable        - turns light detection off");
+  Serial.println("  magnet <0|1|2> - 0 turns off magnet, 1 turns on magnet, 2 disables override mode");
+  Serial.println("  drop           - triggers dropping the magnet manually");
+  Serial.println("  threshold N    - set threshold to be used to detect light");
+  Serial.println("  wait N         - set time in milliseconds to wait while at or below threshold before triggering");
+  Serial.println("  status         - prints the status of the device variables");
+  Serial.println("  print          - print last detected light value");
+  Serial.println("  realtime       - print out light values in realtime");
 }
 
 void printVariables() { 
@@ -69,6 +73,7 @@ void printVariables() {
   p("Current Variables:%s", CRLF);
   p("  threshold:  %d%s", LIGHT_THRESHOLD, CRLF);
   p("  wait:       %d%s", LIGHT_THRESHOLD_WAIT_MS, CRLF);
+  p("  magnet:     %d%s", MAGNET_OVERRIDE_STATE, CRLF);
 }
 
 void handleMessage(String msg) {
@@ -94,6 +99,19 @@ void handleMessage(String msg) {
   else if (command == "disable") {
     p("disabling device now...%s", CRLF);
     ENABLED = false;
+  }
+  else if (command == "magnet") {
+    char * state = "disabled";
+    if (value == 0) {
+      state = "off";
+    } else if (value == 1) {
+      state = "on";
+    }
+
+    p("turning magnet override %s...%s", state, CRLF);
+    MAGNET_OVERRIDE_STATE = value;
+    EEPROM.put(MAGNET_OVERRIDE_ADDR, value);
+    EEPROM.commit();
   }
   else if (command == "drop") {
     DROP_OVERRIDE = 2;
@@ -164,7 +182,7 @@ void loop() {
   int ls = analogRead(LIGHT_SENSOR_PIN);
 
   if (REALTIME_ENABLED || PRINT_ENABLED) {
-    p("%d$s", ls, CRLF);
+    p("%d%s", ls, CRLF);
   }
 
   // print enabled is for a single recorded value
@@ -187,25 +205,30 @@ void loop() {
       resetState();
     }
   } else {
-
-    // only do light check logic if the device is enabled
-    if (ENABLED) {
-      if (ls <= LIGHT_THRESHOLD) {
-        if (dark_detected_timestamp == 0) {
-          dark_detected_timestamp = millis();
-        }
-        
-        if (millis() - dark_detected_timestamp > LIGHT_THRESHOLD_WAIT_MS) {
-            DROP_OVERRIDE = 1;
-        } 
-      } else {
-        dark_detected_timestamp = 0;
-        digitalWrite(MAGNET_PIN, HIGH);
-      }
+    
+    // check for full manual mode
+    if (MAGNET_OVERRIDE_STATE == 0 || MAGNET_OVERRIDE_STATE == 1) {
+      digitalWrite(MAGNET_PIN, MAGNET_OVERRIDE_STATE == 0 ? LOW : HIGH);
     } else {
-        digitalWrite(MAGNET_PIN, HIGH);    
-    }
-  } 
-  
+        // only do light check logic if the device is enabled
+        if (ENABLED) {
+          if (ls <= LIGHT_THRESHOLD) {
+            if (dark_detected_timestamp == 0) {
+              dark_detected_timestamp = millis();
+            }
+            
+            if (millis() - dark_detected_timestamp > LIGHT_THRESHOLD_WAIT_MS) {
+                DROP_OVERRIDE = 1;
+            } 
+          } else {
+            dark_detected_timestamp = 0;
+            digitalWrite(MAGNET_PIN, HIGH);
+          }
+        } else {
+            digitalWrite(MAGNET_PIN, HIGH);
+        }
+    } 
+  }
+    
   delay(50);
 }
