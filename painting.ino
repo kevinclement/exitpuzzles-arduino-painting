@@ -12,10 +12,14 @@ bool REALTIME_ENABLED = false;         // when true, prints measurements out to 
 int  MAGNET_OVERRIDE_STATE = 2;        // state of magnet, either on or off, or disabled
 int  MAGNET_OVERRIDE_ADDR = 8;         // addr to store in eeprom
 bool PRINT_ENABLED = false;            // when true, prints measurement out to serial once
-int  DROP_OVERRIDE = 0;                // controls dropping of the magnet, either manually or dark triggered
+bool DROP_OVERRIDE = false;            // if drop override was requested
 int  DROP_OVERRIDE_TIMEOUT = 2000;     // how long to be in a dropped state before turning magnet back on
-
 char CRLF[] = "\r\n";
+
+// Poor mans state machine
+enum state { ST_INIT, ST_LIGHT_DETECTED, ST_DARK_DETECTED, ST_DROP_REQ, ST_MAGNET_ON, ST_MAGNET_OFF };
+enum state current_state = ST_INIT;
+enum state prev_state = ST_INIT;
 
 unsigned long dark_detected_timestamp = 0; // when we started to detect dark
 unsigned long drop_override_timestamp = 0; // when the drop was triggered 
@@ -114,7 +118,7 @@ void handleMessage(String msg) {
     EEPROM.commit();
   }
   else if (command == "drop") {
-    DROP_OVERRIDE = 2;
+    DROP_OVERRIDE = true;
   }
   else if (command == "threshold") {
     p("setting threshold to '%d'...%s", value, CRLF);
@@ -164,13 +168,6 @@ void readAnySerialMessage() {
   handleMessage(str);
 }
 
-void resetState() {
-  p("turning off drop override%s", CRLF);
-  DROP_OVERRIDE = 0;
-  drop_override_timestamp = 0;
-  ENABLED = false;
-}
-
 void loop() {
   // read bluetooth messages
   readAnyBluetoothMessage();
@@ -190,45 +187,75 @@ void loop() {
     PRINT_ENABLED = false;
   }
 
-  // Check of drop override is in place
-  if (DROP_OVERRIDE > 0) {
-    digitalWrite(MAGNET_PIN, LOW);
-
-    if (drop_override_timestamp == 0) {
-      if (DROP_OVERRIDE == 1) {
-        p("Dark detected.  Dropping now!%s", CRLF);
-      } else if (DROP_OVERRIDE == 2) {
-        p("Dark override.  Dropping now!%s", CRLF);
-      }
-      drop_override_timestamp = millis();
-    } else if (millis() - drop_override_timestamp > DROP_OVERRIDE_TIMEOUT) {
-      resetState();
+  // detect if light is below threshold
+  if (ls <= LIGHT_THRESHOLD) {
+    if (dark_detected_timestamp == 0) {
+      dark_detected_timestamp = millis();
+    }
+            
+    if (millis() - dark_detected_timestamp > LIGHT_THRESHOLD_WAIT_MS) {
+      prev_state = current_state;
+      current_state = ST_DARK_DETECTED;
     }
   } else {
-    
-    // check for full manual mode
-    if (MAGNET_OVERRIDE_STATE == 0 || MAGNET_OVERRIDE_STATE == 1) {
-      digitalWrite(MAGNET_PIN, MAGNET_OVERRIDE_STATE == 0 ? LOW : HIGH);
-    } else {
-        // only do light check logic if the device is enabled
-        if (ENABLED) {
-          if (ls <= LIGHT_THRESHOLD) {
-            if (dark_detected_timestamp == 0) {
-              dark_detected_timestamp = millis();
-            }
-            
-            if (millis() - dark_detected_timestamp > LIGHT_THRESHOLD_WAIT_MS) {
-                DROP_OVERRIDE = 1;
-            } 
-          } else {
-            dark_detected_timestamp = 0;
-            digitalWrite(MAGNET_PIN, HIGH);
-          }
-        } else {
-            digitalWrite(MAGNET_PIN, HIGH);
-        }
-    } 
+    prev_state = current_state;
+    current_state = ST_LIGHT_DETECTED;
+    dark_detected_timestamp = 0;
   }
+
+  // apply any overrides to the state
+  if (MAGNET_OVERRIDE_STATE == 0 || MAGNET_OVERRIDE_STATE == 1) {
+    prev_state = current_state = MAGNET_OVERRIDE_STATE == 0 ? ST_MAGNET_OFF : ST_MAGNET_ON;
+  }
+
+  // drop override has highest precedent over others, so it goes last and overrides all the current states 
+  if (DROP_OVERRIDE) {
+    prev_state = current_state = ST_DROP_REQ;
+  }
+
+  // apply one time transition logic here
+  if (prev_state != current_state) {
+    // Serial.printf("transition: %d => %d\n", prev_state, current_state);
+
+    if (current_state == ST_LIGHT_DETECTED) {
+      p("Light detected.%s", CRLF);
+    }
+
+    if (current_state == ST_DARK_DETECTED) {
+        p("Dark detected.  Dropping now!%s", CRLF);
+    } else if (current_state == ST_DROP_REQ) {
+        p("Dark override.  Dropping now!%s", CRLF);
+    }
+
+    if (prev_state == ST_DARK_DETECTED) {
+      if (millis() - drop_override_timestamp > DROP_OVERRIDE_TIMEOUT) {
+        p("turning off drop%s", CRLF);  
+        drop_override_timestamp = 0;
+        DROP_OVERRIDE = false;
+       }
+    }
+  }
+
+  // finally do work based on current state
+  switch(current_state)  {
+    case ST_DARK_DETECTED:
+    case ST_DROP_REQ: 
+      digitalWrite(MAGNET_PIN, LOW);
+
+      if (drop_override_timestamp == 0) {
+        drop_override_timestamp = millis();
+      } 
+      break;
+
+    case ST_MAGNET_OFF:
+      digitalWrite(MAGNET_PIN, LOW);
+      break;
+
+    case ST_MAGNET_ON:
+    case ST_LIGHT_DETECTED:
+      digitalWrite(MAGNET_PIN, HIGH);
+      break;
+  } 
     
-  delay(50);
+  delay(100);
 }
