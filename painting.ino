@@ -13,7 +13,7 @@ int  LIGHT_THRESHOLD_WAIT_MS_ADDR = 4; // where to store wait time in eeprom (ne
 bool REALTIME_ENABLED = false;         // when true, prints measurements out to serial in realtime
 int  MAGNET_OVERRIDE_STATE = 2;        // state of magnet, either on or off, or disabled
 int  MAGNET_OVERRIDE_ADDR = 8;         // addr to store in eeprom
-int  FALLBACK = 0;                     // should we fallback to simple logic.  anything other than 0 will fallback
+int  OFFLINE = 0;                      // should we fallback to simple offline only logic.  anything other than 0 will fallback
 int  FALLBACK_ADDR = 12;               // where to store fallback in eeprom (need 4 because 4 bytes per int)
 bool PRINT_ENABLED = false;            // when true, prints measurement out to serial once
 char CRLF[] = "\r\n";
@@ -65,7 +65,7 @@ void readStoredVars() {
   EEPROM.get(LIGHT_THRESHOLD_ADDR, LIGHT_THRESHOLD);
   EEPROM.get(LIGHT_THRESHOLD_WAIT_MS_ADDR, LIGHT_THRESHOLD_WAIT_MS);
   EEPROM.get(MAGNET_OVERRIDE_ADDR, MAGNET_OVERRIDE_STATE);
-  EEPROM.get(FALLBACK_ADDR, FALLBACK);
+  EEPROM.get(FALLBACK_ADDR, OFFLINE);
 }
 
 void printHelp() {
@@ -86,7 +86,7 @@ void printVariables() {
   p("  threshold:  %d%s", LIGHT_THRESHOLD, CRLF);
   p("  wait:       %d%s", LIGHT_THRESHOLD_WAIT_MS, CRLF);
   p("  magnet:     %d%s", MAGNET_OVERRIDE_STATE, CRLF);
-  p("  fallback:   %d%s", FALLBACK, CRLF);
+  p("  offline:    %d%s", OFFLINE, CRLF);
 }
 
 void handleMessage(String msg) {
@@ -164,13 +164,12 @@ void handleStatusPin() {
     else if (millis() - fallback_pressed_timestamp > 3000) { // hold time for button to reset mode
       FALLBACK_LED_ON = true;
       if (!wrote_fallback_change) {
-        FALLBACK = FALLBACK == 0 ? 1 : 0;
+        OFFLINE = OFFLINE == 0 ? 1 : 0;
 
-        EEPROM.put(FALLBACK_ADDR, FALLBACK);
+        EEPROM.put(FALLBACK_ADDR, OFFLINE);
         EEPROM.commit();
         wrote_fallback_change = true; 
       }
-      
     }
   } else {
     fallback_pressed_timestamp = 0;
@@ -239,7 +238,7 @@ void loop() {
       prev_state = current_state;
 
       // only change the state if the device is enabled
-      if (ENABLED || FALLBACK) {
+      if (ENABLED || OFFLINE) {
         current_state = ST_DARK_DETECTED;
       }
     }
