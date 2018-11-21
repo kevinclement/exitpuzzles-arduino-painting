@@ -154,7 +154,7 @@ void handleMessage(String msg) {
   } 
 }
 
-void handleStatusPin() {
+void handleOfflineMode() {
   int buttonState = digitalRead(TOGGLE_BUTTON);
 
   if (buttonState == 0) {
@@ -222,8 +222,8 @@ void loop() {
   // read serial messages
   readAnySerialMessage();
 
-  // set status pin
-  handleStatusPin();
+  // check for offline mode 
+  handleOfflineMode();
 
   // read value coming from light sensor
   int ls = readAndPrintLightSensor();
