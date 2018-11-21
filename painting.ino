@@ -77,7 +77,7 @@ void printHelp() {
   Serial.println("Available commands:");
   Serial.println("  enable         - turns light detection on");
   Serial.println("  disable        - turns light detection off");
-  Serial.println("  magnet <0|1|2> - 0 turns off magnet, 1 turns on magnet, 2 disables override mode");
+  Serial.println("  manual <0|1|2> - 0 turns off magnet, 1 turns on magnet, 2 disables override mode");
   Serial.println("  drop           - drop the box");
   Serial.println("  threshold N    - set threshold to be used to detect light");
   Serial.println("  wait N         - set time in milliseconds to wait while at or below threshold before triggering");
