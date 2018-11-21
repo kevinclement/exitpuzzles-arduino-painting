@@ -11,13 +11,13 @@ int  LIGHT_THRESHOLD_ADDR = 0;         // where to store light threshold in eepr
 int  LIGHT_THRESHOLD_WAIT_MS;          // how long to wait at threshold before we trigger the drop, in milliseconds (default was 1500)
 int  LIGHT_THRESHOLD_WAIT_MS_ADDR = 4; // where to store wait time in eeprom (need 4 because 4 bytes per int)
 bool REALTIME_ENABLED = false;         // when true, prints measurements out to serial in realtime
-int  MAGNET_OVERRIDE_STATE = 2;        // state of magnet, either on or off, or disabled
-int  MAGNET_OVERRIDE_ADDR = 8;         // addr to store in eeprom
+int  MANUAL_OVERRIDE_STATE = 2;        // state of magnet, either on or off, or disabled
+int  MANUAL_OVERRIDE_ADDR = 8;         // addr to store in eeprom
 bool PRINT_ENABLED = false;            // when true, prints measurement out to serial once
 char CRLF[] = "\r\n";
 
 // Poor mans state machine
-enum state { ST_INIT, ST_LIGHT_DETECTED, ST_DARK_DETECTED, ST_MAGNET_ON, ST_MAGNET_OFF };
+enum state { ST_INIT, ST_LIGHT_DETECTED, ST_DARK_DETECTED, ST_MANUAL_ON, ST_MANUAL_OFF };
 enum state current_state = ST_INIT;
 enum state prev_state = ST_INIT;
 
@@ -27,6 +27,11 @@ int  OFFLINE_ADDR = 12;       // where to store offline in eeprom
 bool OFFLINE_LED_ON = false;
 bool updated_offline_mem = false;
 unsigned long offline_pressed_timestamp = 0;
+
+// force drop
+bool FORCE_DROP = false;
+int FORCED_DROP_HOLD_MS = 2000; 
+unsigned long forced_drop_timestamp = 0;
 
 unsigned long dark_detected_timestamp = 0; // when we started to detect dark
 
@@ -64,7 +69,7 @@ void readStoredVars() {
   
   EEPROM.get(LIGHT_THRESHOLD_ADDR, LIGHT_THRESHOLD);
   EEPROM.get(LIGHT_THRESHOLD_WAIT_MS_ADDR, LIGHT_THRESHOLD_WAIT_MS);
-  EEPROM.get(MAGNET_OVERRIDE_ADDR, MAGNET_OVERRIDE_STATE);
+  EEPROM.get(MANUAL_OVERRIDE_ADDR, MANUAL_OVERRIDE_STATE);
   EEPROM.get(OFFLINE_ADDR, OFFLINE);
 }
 
@@ -72,7 +77,8 @@ void printHelp() {
   Serial.println("Available commands:");
   Serial.println("  enable         - turns light detection on");
   Serial.println("  disable        - turns light detection off");
-  Serial.println("  magnet <0|1|2> - 0 turns off magnet, 1 turns on magnet, 2 disables override mode");
+  Serial.println("  manual <0|1|2> - 0 turns off magnet, 1 turns on magnet, 2 disables override mode");
+  Serial.println("  drop           - drop the box");
   Serial.println("  threshold N    - set threshold to be used to detect light");
   Serial.println("  wait N         - set time in milliseconds to wait while at or below threshold before triggering");
   Serial.println("  status         - prints the status of the device variables");
@@ -85,7 +91,7 @@ void printVariables() {
   p("Current Variables:%s", CRLF);
   p("  threshold:  %d%s", LIGHT_THRESHOLD, CRLF);
   p("  wait:       %d%s", LIGHT_THRESHOLD_WAIT_MS, CRLF);
-  p("  magnet:     %d%s", MAGNET_OVERRIDE_STATE, CRLF);
+  p("  manual:     %d%s", MANUAL_OVERRIDE_STATE, CRLF);
   p("  offline:    %d%s", OFFLINE, CRLF);
 }
 
@@ -121,10 +127,13 @@ void handleMessage(String msg) {
       state = "on";
     }
 
-    p("turning magnet override %s...%s", state, CRLF);
-    MAGNET_OVERRIDE_STATE = value;
-    EEPROM.put(MAGNET_OVERRIDE_ADDR, value);
+    p("turning manual override %s...%s", state, CRLF);
+    MANUAL_OVERRIDE_STATE = value;
+    EEPROM.put(MANUAL_OVERRIDE_ADDR, value);
     EEPROM.commit();
+  }
+  else if (command == "drop") {
+    FORCE_DROP = true;
   }
   else if (command == "threshold") {
     p("setting threshold to '%d'...%s", value, CRLF);
@@ -249,8 +258,8 @@ void loop() {
   }
 
   // apply any overrides to the state
-  if (MAGNET_OVERRIDE_STATE == 0 || MAGNET_OVERRIDE_STATE == 1) {
-    prev_state = current_state = MAGNET_OVERRIDE_STATE == 0 ? ST_MAGNET_OFF : ST_MAGNET_ON;
+  if (MANUAL_OVERRIDE_STATE == 0 || MANUAL_OVERRIDE_STATE == 1) {
+    prev_state = current_state = MANUAL_OVERRIDE_STATE == 0 ? ST_MANUAL_OFF : ST_MANUAL_ON;
   }
 
   // apply one time transition logic here
@@ -267,18 +276,28 @@ void loop() {
     }
   }
 
-  // finally do work based on current state
-  switch(current_state)  {
-    case ST_DARK_DETECTED:
-    case ST_MAGNET_OFF: 
-      digitalWrite(MAGNET_PIN, LOW);
-      break;
+  // lastly, check for force drop, which trumps all previous settings
+  if (FORCE_DROP) {
+    if (forced_drop_timestamp == 0) {
+      forced_drop_timestamp = millis();
+    }
 
-    case ST_MAGNET_ON:
-    case ST_LIGHT_DETECTED:
-      digitalWrite(MAGNET_PIN, HIGH);
-      break;
+    if (millis() - forced_drop_timestamp > FORCED_DROP_HOLD_MS) {
+      p("Forced time over.%s", CRLF);
+      FORCE_DROP = false;
+    }
+  }
+
+  // finally do work based on current state
+  if (current_state == ST_DARK_DETECTED ||
+      current_state == ST_MANUAL_OFF ||
+      FORCE_DROP) {
+    digitalWrite(MAGNET_PIN, LOW);
   } 
+  else if (current_state == ST_MANUAL_ON ||
+           current_state == ST_LIGHT_DETECTED) {
+    digitalWrite(MAGNET_PIN, HIGH);       
+  }
     
   delay(100);
 }
