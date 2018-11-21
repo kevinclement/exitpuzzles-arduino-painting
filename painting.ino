@@ -94,6 +94,8 @@ void printVariables() {
   p("  wait:       %d%s", LIGHT_THRESHOLD_WAIT_MS, CRLF);
   p("  manual:     %d%s", MANUAL_OVERRIDE_STATE, CRLF);
   p("  offline:    %d%s", OFFLINE, CRLF);
+  p("  previous:   %d%s", prev_state, CRLF);
+  p("  current:    %d%s", current_state, CRLF);
 }
 
 void handleMessage(String msg) {
@@ -154,9 +156,6 @@ void handleMessage(String msg) {
   }
   else if (command == "print") {
     PRINT_ENABLED = true;
-  }  
-  else if (command == "state") {
-    Serial.printf("prev: %d current:%d\n", prev_state, current_state);
   }  
   else if (command == "realtime") {
     REALTIME_ENABLED = !REALTIME_ENABLED; 
