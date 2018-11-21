@@ -84,6 +84,7 @@ void printHelp() {
   Serial.println("  status         - prints the status of the device variables");
   Serial.println("  print          - print last detected light value");
   Serial.println("  realtime       - print out light values in realtime");
+  Serial.println("  reset          - software reset the device");
 }
 
 void printVariables() { 
@@ -134,6 +135,7 @@ void handleMessage(String msg) {
   }
   else if (command == "drop") {
     FORCE_DROP = true;
+    p("dropping bottom now...%s", CRLF);
   }
   else if (command == "threshold") {
     p("setting threshold to '%d'...%s", value, CRLF);
@@ -153,8 +155,14 @@ void handleMessage(String msg) {
   else if (command == "print") {
     PRINT_ENABLED = true;
   }  
+  else if (command == "state") {
+    Serial.printf("prev: %d current:%d\n", prev_state, current_state);
+  }  
   else if (command == "realtime") {
     REALTIME_ENABLED = !REALTIME_ENABLED; 
+  }
+  else if (command == "reset") {
+    ESP.restart();    
   } else {
     int str_len = command.length() + 1; 
     char char_array[str_len];
@@ -284,6 +292,7 @@ void loop() {
 
     if (millis() - forced_drop_timestamp > FORCED_DROP_HOLD_MS) {
       p("Forced time over.%s", CRLF);
+      forced_drop_timestamp = 0;
       FORCE_DROP = false;
     }
   }
@@ -295,6 +304,7 @@ void loop() {
     digitalWrite(MAGNET_PIN, LOW);
   } 
   else if (current_state == ST_MANUAL_ON ||
+           current_state == ST_INIT ||
            current_state == ST_LIGHT_DETECTED) {
     digitalWrite(MAGNET_PIN, HIGH);       
   }
