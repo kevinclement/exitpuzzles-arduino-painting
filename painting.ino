@@ -4,6 +4,8 @@
 bool ENABLED = false;                  // default to disabled.  let bluetooth turn it on
 int  LIGHT_SENSOR_PIN = 34;            // sensing LED connected to IO34
 int  MAGNET_PIN = 14;                  // pin that controls the magnet
+int  LED_PIN = 33;                     // pin that controls the status LED
+int  TOGGLE_BUTTON = 0;                // points to the built in boot button on esp32
 int  LIGHT_THRESHOLD;                  // what threshold to hit before we trigger drop (default was 0)
 int  LIGHT_THRESHOLD_ADDR = 0;         // where to store light threshold in eeprom
 int  LIGHT_THRESHOLD_WAIT_MS;          // how long to wait at threshold before we trigger the drop, in milliseconds (default was 1500)
@@ -11,6 +13,8 @@ int  LIGHT_THRESHOLD_WAIT_MS_ADDR = 4; // where to store wait time in eeprom (ne
 bool REALTIME_ENABLED = false;         // when true, prints measurements out to serial in realtime
 int  MAGNET_OVERRIDE_STATE = 2;        // state of magnet, either on or off, or disabled
 int  MAGNET_OVERRIDE_ADDR = 8;         // addr to store in eeprom
+int  FALLBACK = 0;                     // should we fallback to simple logic.  anything other than 0 will fallback
+int  FALLBACK_ADDR = 12;               // where to store fallback in eeprom (need 4 because 4 bytes per int)
 bool PRINT_ENABLED = false;            // when true, prints measurement out to serial once
 char CRLF[] = "\r\n";
 
@@ -18,6 +22,11 @@ char CRLF[] = "\r\n";
 enum state { ST_INIT, ST_LIGHT_DETECTED, ST_DARK_DETECTED, ST_MAGNET_ON, ST_MAGNET_OFF };
 enum state current_state = ST_INIT;
 enum state prev_state = ST_INIT;
+
+// Fallback logic
+unsigned long fallback_pressed_timestamp = 0;
+bool FALLBACK_LED_ON = false;
+bool wrote_fallback_change = false;
 
 unsigned long dark_detected_timestamp = 0; // when we started to detect dark
 
@@ -32,6 +41,8 @@ void setup() {
   SerialBT.begin("ExitPaint2"); //Bluetooth device name
 
   pinMode(MAGNET_PIN, OUTPUT); 
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(TOGGLE_BUTTON, INPUT_PULLUP);
 }
 
 void p(char *fmt, ...){
@@ -54,6 +65,7 @@ void readStoredVars() {
   EEPROM.get(LIGHT_THRESHOLD_ADDR, LIGHT_THRESHOLD);
   EEPROM.get(LIGHT_THRESHOLD_WAIT_MS_ADDR, LIGHT_THRESHOLD_WAIT_MS);
   EEPROM.get(MAGNET_OVERRIDE_ADDR, MAGNET_OVERRIDE_STATE);
+  EEPROM.get(FALLBACK_ADDR, FALLBACK);
 }
 
 void printHelp() {
@@ -74,6 +86,7 @@ void printVariables() {
   p("  threshold:  %d%s", LIGHT_THRESHOLD, CRLF);
   p("  wait:       %d%s", LIGHT_THRESHOLD_WAIT_MS, CRLF);
   p("  magnet:     %d%s", MAGNET_OVERRIDE_STATE, CRLF);
+  p("  fallback:   %d%s", FALLBACK, CRLF);
 }
 
 void handleMessage(String msg) {
@@ -141,6 +154,33 @@ void handleMessage(String msg) {
   } 
 }
 
+void handleStatusPin() {
+  int buttonState = digitalRead(TOGGLE_BUTTON);
+
+  if (buttonState == 0) {
+    if (fallback_pressed_timestamp == 0) {
+      fallback_pressed_timestamp = millis();
+    }
+    else if (millis() - fallback_pressed_timestamp > 3000) { // hold time for button to reset mode
+      FALLBACK_LED_ON = true;
+      if (!wrote_fallback_change) {
+        FALLBACK = FALLBACK == 0 ? 1 : 0;
+
+        EEPROM.put(FALLBACK_ADDR, FALLBACK);
+        EEPROM.commit();
+        wrote_fallback_change = true; 
+      }
+      
+    }
+  } else {
+    fallback_pressed_timestamp = 0;
+    FALLBACK_LED_ON = false;
+    wrote_fallback_change = false;
+  }
+
+  digitalWrite(LED_PIN, FALLBACK_LED_ON ? HIGH : LOW);
+}
+
 void readAnyBluetoothMessage() {
   if (!SerialBT.available()) {
     return;
@@ -183,6 +223,9 @@ void loop() {
   // read serial messages
   readAnySerialMessage();
 
+  // set status pin
+  handleStatusPin();
+
   // read value coming from light sensor
   int ls = readAndPrintLightSensor();
   
@@ -196,7 +239,7 @@ void loop() {
       prev_state = current_state;
 
       // only change the state if the device is enabled
-      if (ENABLED) {
+      if (ENABLED || FALLBACK) {
         current_state = ST_DARK_DETECTED;
       }
     }
